@@ -9,7 +9,7 @@ import os
 import tempfile
 import logging
 import sys
-from flask import Flask
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
@@ -40,18 +40,7 @@ def carregar_credenciais():
 
 # Configurações do ambiente
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = carregar_credenciais()
-os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-11"
-os.environ["PYSPARK_PYTHON"] = r"C:\Users\mathe\anaconda3\envs\cripto_env\python.exe"
-os.environ["SPARK_HOME"] = r"C:\spark-3.5.4-bin-hadoop3"
-os.environ["HADOOP_HOME"] = r"C:\Winutils"
-
-# Verificar se o SPARK_HOME está configurado corretamente
-if not os.path.exists(os.environ["SPARK_HOME"]):
-    logger.error(f"SPARK_HOME não encontrado: {os.environ['SPARK_HOME']}")
-    sys.exit(1)
-
-# Adicionar o Spark ao PATH
-os.environ["PATH"] = os.environ["PATH"] + ";" + os.path.join(os.environ["SPARK_HOME"], "bin")
+os.environ["GOOGLE_CLOUD_PROJECT"] = "projeto-treinamento-450619"  # Defina o projeto do Google Cloud
 
 CHAVE_API = acessar_chave_api()
 logger.info(f"Chave da API obtida: {CHAVE_API}")
@@ -65,18 +54,19 @@ URL_API = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency={TIPO_MOE
 logger.info(f"URL da API: {URL_API}")
 
 # Criar a SparkSession
-try:
-    spark = (
-        SparkSession.builder
-        .master('local')
-        .appName('ProcessamentoDadosCriptomoedas')
-        .config("spark.jars.packages", "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.32.0")  # Adicionar suporte ao BigQuery
-        .getOrCreate()
-    )
-    logger.info("SparkSession criada com sucesso.")
-except Exception as e:
-    logger.error(f"Erro ao criar SparkSession: {e}")
-    sys.exit(1)
+def criar_spark_session():
+    try:
+        spark = (
+            SparkSession.builder
+            .appName('ProcessamentoDadosCriptomoedas')
+            .config("spark.jars.packages", "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.32.0")
+            .getOrCreate()
+        )
+        logger.info("SparkSession criada com sucesso.")
+        return spark
+    except Exception as e:
+        logger.error(f"Erro ao criar SparkSession: {e}")
+        raise
 
 # Função para consumir a API
 def buscar_dados_api():
@@ -191,10 +181,12 @@ schema_criptomoedas = [
     bigquery.SchemaField("ultima_atualizacao", "TIMESTAMP", mode="NULLABLE"),
     bigquery.SchemaField("data_hora_coleta", "TIMESTAMP", mode="NULLABLE"),
 ]
+
 @app.route('/', methods=['GET'])
-# Função principal
 def main():
     try:
+        spark = criar_spark_session()
+
         # Consumir a API
         dados_criptomoedas = buscar_dados_api()
 
@@ -252,13 +244,17 @@ def main():
         # Registrar a execução como sucesso
         registrar_execucao(True)
 
+        return jsonify({"status": "success", "message": "Dados processados e salvos com sucesso."}), 200
+
     except Exception as e:
         logger.error(f"Erro durante a execução: {e}")
         # Registrar a execução como falha
         registrar_execucao(False)
+        return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         # Encerrar a sessão do Spark
-        spark.stop()
+        if 'spark' in locals():
+            spark.stop()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
