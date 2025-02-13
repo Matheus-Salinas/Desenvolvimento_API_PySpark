@@ -8,6 +8,7 @@ from datetime import datetime
 import os
 import tempfile
 import logging
+import sys
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -34,13 +35,23 @@ def carregar_credenciais():
         temp_file.write(credenciais)
         return temp_file.name
 
-# Configurações
+# Configurações do ambiente
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = carregar_credenciais()
 os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-11"
 os.environ["PYSPARK_PYTHON"] = r"C:\Users\mathe\anaconda3\envs\cripto_env\python.exe"
+os.environ["SPARK_HOME"] = r"C:\spark-3.5.4-bin-hadoop3"
+os.environ["HADOOP_HOME"] = r"C:\Winutils"
+
+# Verificar se o SPARK_HOME está configurado corretamente
+if not os.path.exists(os.environ["SPARK_HOME"]):
+    logger.error(f"SPARK_HOME não encontrado: {os.environ['SPARK_HOME']}")
+    sys.exit(1)
+
+# Adicionar o Spark ao PATH
+os.environ["PATH"] = os.environ["PATH"] + ";" + os.path.join(os.environ["SPARK_HOME"], "bin")
 
 CHAVE_API = acessar_chave_api()
-logger.info(f"Chave da API obtida: {CHAVE_API}")  # Log da chave da API
+logger.info(f"Chave da API obtida: {CHAVE_API}")
 TIPO_MOEDA = "brl"
 DATASET_BIGQUERY = 'cripto_dataset'
 TABELA_HISTORICO = 'tabela_criptomoedas'
@@ -51,12 +62,18 @@ URL_API = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency={TIPO_MOE
 logger.info(f"URL da API: {URL_API}")
 
 # Criar a SparkSession
-spark = (
-    SparkSession.builder
-    .master('local')
-    .appName('ProcessamentoDadosCriptomoedas')
-    .getOrCreate()
-)
+try:
+    spark = (
+        SparkSession.builder
+        .master('local')
+        .appName('ProcessamentoDadosCriptomoedas')
+        .config("spark.jars.packages", "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.32.0")  # Adicionar suporte ao BigQuery
+        .getOrCreate()
+    )
+    logger.info("SparkSession criada com sucesso.")
+except Exception as e:
+    logger.error(f"Erro ao criar SparkSession: {e}")
+    sys.exit(1)
 
 # Função para consumir a API
 def buscar_dados_api():
@@ -185,7 +202,7 @@ def main():
         dados_tratados = tratar_dados(dados_com_timestamp)
 
         # Converter o JSON para um DataFrame do PySpark
-        df = spark.read.json(spark.sparkContext.parallelize([json.dumps(item) for item in dados_tratados]))
+        df = spark.createDataFrame(dados_tratados)
 
         # Renomear as colunas para português
         df = df.withColumnRenamed("id", "id") \
