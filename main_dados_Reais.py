@@ -1,6 +1,7 @@
 import requests
 import json
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, round
 from google.cloud import bigquery
 from google.cloud import secretmanager
 from google.cloud.exceptions import NotFound
@@ -214,7 +215,23 @@ def main():
                .withColumnRenamed("atl_date", "data_preco_minimo") \
                .withColumnRenamed("roi", "retorno_investimento") \
                .withColumnRenamed("last_updated", "ultima_atualizacao") \
-               .withColumnRenamed("data_hora_coleta", "data_hora_coleta")
+               .withColumnRenamed("data_hora_coleta", "data_hora_coleta")\
+               .drop("retorno_investimento")\
+               .drop("imagem")
+
+        # Arredondar os valores monetários para 2 casas decimais
+        df = df.withColumn("preco_atual", round(col("preco_atual"), 2)) \
+               .withColumn("capitalizacao_mercado", round(col("capitalizacao_mercado"), 2)) \
+               .withColumn("valor_total_diluido", round(col("valor_total_diluido"), 2)) \
+               .withColumn("volume_total", round(col("volume_total"), 2)) \
+               .withColumn("maior_preco_24h", round(col("maior_preco_24h"), 2)) \
+               .withColumn("menor_preco_24h", round(col("menor_preco_24h"), 2)) \
+               .withColumn("variacao_preco_24h", round(col("variacao_preco_24h"), 2)) \
+               .withColumn("variacao_capitalizacao_24h", round(col("variacao_capitalizacao_24h"), 2)) \
+               .withColumn("oferta_circulante", round(col("oferta_circulante"), 2)) \
+               .withColumn("oferta_total", round(col("oferta_total"), 2)) \
+               .withColumn("oferta_maxima", round(col("oferta_maxima"), 2)) \
+               .withColumn("preco_maximo_historico", round(col("preco_maximo_historico"), 2))
 
         # Mostrar o schema e os dados
         df.printSchema()
